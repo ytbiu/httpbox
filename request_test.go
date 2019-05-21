@@ -7,7 +7,6 @@ import (
 	"io"
 	"strings"
 	"io/ioutil"
-	"log"
 )
 
 
@@ -25,7 +24,6 @@ type postHandler struct {}
 
 func (gh *postHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	reqBody,_ := ioutil.ReadAll(r.Body)
-	log.Print(string(reqBody))
 	io.Copy(w,strings.NewReader(string(reqBody)))
 }
 
