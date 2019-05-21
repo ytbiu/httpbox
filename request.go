@@ -8,7 +8,38 @@ import (
 	"net/http/httptest"
 )
 
-func Get(url string, params map[string]string, newHandler func() http.Handler) ([]byte, int) {
+type Requester interface {
+	URL() string
+	Params() map[string]string
+}
+
+type Request struct {
+	url    string
+	params map[string]string
+}
+
+func (r *Request) URL() string {
+	return r.url
+}
+
+func (r *Request) Params() map[string]string {
+	return r.params
+}
+
+func DefaultRequester(url string, params ...map[string]string) Requester {
+	r := &Request{url: url}
+
+	if len(params) > 0 {
+		r.params = params[0]
+	}
+
+	return r
+}
+
+func Get(testReq Requester, newHandler http.Handler, resp interface{}) (int, error) {
+
+	params := testReq.Params()
+	url := testReq.URL()
 
 	firstLoop := true
 	for k, v := range params {
@@ -20,22 +51,27 @@ func Get(url string, params map[string]string, newHandler func() http.Handler) (
 	}
 
 	req := httptest.NewRequest(http.MethodGet, url[:len(url)-1], nil)
+	body, respCode := sendReq(req, newHandler)
 
-	return sendReq(req, newHandler)
+	return respCode, json.Unmarshal(body, resp)
 }
 
-func Post(url string, params map[string]string, newHandler func() http.Handler) ([]byte, int) {
+func Post(testReq Requester, newHandler http.Handler, resp interface{}) (int, error) {
 
-	body, _ := json.Marshal(params)
-	req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	params := testReq.Params()
+	url := testReq.URL()
 
-	return sendReq(req, newHandler)
+	postForm, _ := json.Marshal(params)
+	req := httptest.NewRequest(http.MethodPost, url, bytes.NewReader(postForm))
+	body, respCode := sendReq(req, newHandler)
+
+	return respCode, json.Unmarshal(body, resp)
 }
 
-func sendReq(req *http.Request, handler func() http.Handler) ([]byte, int) {
+func sendReq(req *http.Request, handler http.Handler) ([]byte, int) {
 
 	w := httptest.NewRecorder()
-	handler().ServeHTTP(w, req)
+	handler.ServeHTTP(w, req)
 
 	result := w.Result()
 	defer result.Body.Close()

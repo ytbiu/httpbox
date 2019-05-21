@@ -1,67 +1,89 @@
 package httpbox
 
 import (
-	"net/http"
-	"reflect"
-	"testing"
+	"bytes"
+	"encoding/json"
 	"io"
-	"strings"
 	"io/ioutil"
+	"net/http"
+	"testing"
 )
 
+type getHandler struct{}
 
-type getHandler struct {}
+type handlerResp struct {
+	Msg string `json:"msg"`
+}
 
 func (gh *getHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	io.Copy(w,strings.NewReader(r.URL.RawQuery))
+	resp := &handlerResp{}
+	if rawQuery := r.URL.RawQuery; rawQuery != "" {
+		resp.Msg = rawQuery
+	} else {
+		resp.Msg = "no params"
+	}
+
+	b, _ := json.Marshal(resp)
+	io.Copy(w, bytes.NewReader(b))
 }
 
-func testGetHandler() http.Handler {
-	return &getHandler{}
-}
-
-type postHandler struct {}
+type postHandler struct{}
 
 func (gh *postHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	reqBody,_ := ioutil.ReadAll(r.Body)
-	io.Copy(w,strings.NewReader(string(reqBody)))
-}
+	reqBody, _ := ioutil.ReadAll(r.Body)
+	resp := &handlerResp{Msg: string(reqBody)}
+	b, _ := json.Marshal(resp)
 
-func testPostHandler() http.Handler {
-	return &postHandler{}
+	io.Copy(w, bytes.NewReader(b))
 }
-
 
 func TestGet(t *testing.T) {
 	type args struct {
-		url        string
-		params     map[string]string
-		newHandler func() http.Handler
+		testReq    Requester
+		newHandler http.Handler
+		resp       *handlerResp
 	}
 	tests := []struct {
-		name string
-		args  args
-		want  []byte
-		want1 int
+		name     string
+		args     args
+		want     int
+		wantResp *handlerResp
+		wantErr  bool
 	}{
 		{
-			args:  args{
-				url:        "/test/get",
-				params:     map[string]string{"k":"v"},
-				newHandler: testGetHandler,
+			args: args{
+				testReq:    DefaultRequester("/test/get", map[string]string{"k": "v"}),
+				newHandler: &getHandler{},
+				resp:       &handlerResp{},
 			},
-			want:  []byte("k=v"),
-			want1: 200,
+			want:     http.StatusOK,
+			wantResp: &handlerResp{Msg: "k=v"},
+			wantErr:  false,
+		},
+
+		{
+			args: args{
+				testReq:    DefaultRequester("/test/get"),
+				newHandler: &getHandler{},
+				resp:       &handlerResp{},
+			},
+			want:     http.StatusOK,
+			wantResp: &handlerResp{Msg: "no params"},
+			wantErr:  false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := Get(tt.args.url, tt.args.params, tt.args.newHandler)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Get() got = %v, want %v", got, tt.want)
+			got, err := Get(tt.args.testReq, tt.args.newHandler, tt.args.resp)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Get() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if got1 != tt.want1 {
-				t.Errorf("Get() got1 = %v, want %v", got1, tt.want1)
+			if got != tt.want {
+				t.Errorf("Get() = %v, want %v", got, tt.want)
+			}
+			if tt.args.resp.Msg != tt.wantResp.Msg {
+				t.Errorf("Get() = %v, want %v", tt.args.resp.Msg, tt.wantResp.Msg)
 			}
 		})
 	}
@@ -69,34 +91,40 @@ func TestGet(t *testing.T) {
 
 func TestPost(t *testing.T) {
 	type args struct {
-		url        string
-		params     map[string]string
-		newHandler func() http.Handler
+		testReq    Requester
+		newHandler http.Handler
+		resp       *handlerResp
 	}
 	tests := []struct {
-		name  string
-		args  args
-		want  []byte
-		want1 int
+		name     string
+		args     args
+		want     int
+		wantResp handlerResp
+		wantErr  bool
 	}{
 		{
-			args:  args{
-				url:        "/test/post",
-				params:     map[string]string{"k":"v"},
-				newHandler: testPostHandler,
+			args: args{
+				testReq:    DefaultRequester("/test/get", map[string]string{"k": "v"}),
+				newHandler: &postHandler{},
+				resp:       &handlerResp{},
 			},
-			want:  []byte(`{"k":"v"}`),
-			want1: 200,
+			want:     http.StatusOK,
+			wantResp: handlerResp{Msg: `{"k":"v"}`},
+			wantErr:  false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, got1 := Post(tt.args.url, tt.args.params, tt.args.newHandler)
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Post() got = %v, want %v", got, tt.want)
+			got, err := Post(tt.args.testReq, tt.args.newHandler, tt.args.resp)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Post() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if got1 != tt.want1 {
-				t.Errorf("Post() got1 = %v, want %v", got1, tt.want1)
+			if got != tt.want {
+				t.Errorf("Post() = %v, want %v", got, tt.want)
+			}
+			if tt.args.resp.Msg != tt.wantResp.Msg {
+				t.Errorf("Post() = %v, want %v", tt.args.resp.Msg, tt.wantResp.Msg)
 			}
 		})
 	}
